@@ -1,15 +1,14 @@
+from prefect import flow, task
 import pandas as pd
 import numpy as np
 import joblib
 from imblearn.over_sampling import SMOTE
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-)
+from sklearn.metrics import accuracy_score, classification_report
 
 
+@task
 def compute_bounds(df, column):
     Q1 = df[column].quantile(0.25)
     Q3 = df[column].quantile(0.75)
@@ -19,24 +18,17 @@ def compute_bounds(df, column):
     return lower_bound, upper_bound
 
 
-def replace_outliers_with_median(df, column):
+@task
+def replace_outliers(df, column, method="mean"):
     lower_bound, upper_bound = compute_bounds(df, column)
-    median_value = df[column].median()
+    replacement_value = df[column].median() if method == "median" else df[column].mean()
     df[column] = df[column].where(
-        (df[column] >= lower_bound) & (df[column] <= upper_bound), median_value
+        (df[column] >= lower_bound) & (df[column] <= upper_bound), replacement_value
     )
     return df
 
 
-def replace_outliers_with_mean(df, column):
-    lower_bound, upper_bound = compute_bounds(df, column)
-    mean_value = df[column].mean()
-    df[column] = df[column].where(
-        (df[column] >= lower_bound) & (df[column] <= upper_bound), mean_value
-    )
-    return df
-
-
+@task
 def prepare_data(
     train_path="~/wejden_nasfi_4DS8_ml_project_1/Churn-bigml-80.csv",
     test_path="~/wejden_nasfi_4DS8_ml_project_1/Churn-bigml-20.csv",
@@ -44,14 +36,13 @@ def prepare_data(
     training_dataset = pd.read_csv(train_path)
     test_dataset = pd.read_csv(test_path)
 
+    # Handle outliers
     for col in training_dataset.select_dtypes(include=[np.number]).columns:
-        if training_dataset[col].nunique() > 2:
-            training_dataset = replace_outliers_with_mean(training_dataset, col)
-            test_dataset = replace_outliers_with_mean(test_dataset, col)
-        else:
-            training_dataset = replace_outliers_with_median(training_dataset, col)
-            test_dataset = replace_outliers_with_median(test_dataset, col)
+        method = "mean" if training_dataset[col].nunique() > 2 else "median"
+        training_dataset = replace_outliers(training_dataset, col, method)
+        test_dataset = replace_outliers(test_dataset, col, method)
 
+    # Encode categorical features
     label_encoders = {}
     for col in training_dataset.select_dtypes(include=["object"]).columns:
         le = LabelEncoder()
@@ -59,6 +50,7 @@ def prepare_data(
         test_dataset[col] = le.transform(test_dataset[col])
         label_encoders[col] = le
 
+    # Normalize numeric features
     scaler = StandardScaler()
     numerical_cols = training_dataset.select_dtypes(include=[np.number]).columns
     training_dataset[numerical_cols] = scaler.fit_transform(
@@ -71,12 +63,20 @@ def prepare_data(
     X_test = test_dataset.drop(columns=["Churn"])
     y_test = test_dataset["Churn"]
 
+    # Handle class imbalance using SMOTE
     smote = SMOTE(random_state=42)
     X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+
+    # Save prepared data
+    joblib.dump(
+        (X_train_resampled, X_test, y_train_resampled, y_test, scaler),
+        "prepared_data.joblib",
+    )
 
     return X_train_resampled, X_test, y_train_resampled, y_test, scaler
 
 
+@task
 def train_model(X_train, y_train):
     model = SVC(
         kernel="linear", probability=True, random_state=42, class_weight="balanced"
@@ -85,6 +85,7 @@ def train_model(X_train, y_train):
     return model
 
 
+@task
 def evaluate_model(model, X_test, y_test, threshold=0.3):
     y_probs = model.predict_proba(X_test)[:, 1]
     y_pred_adjusted = (y_probs > threshold).astype(int)
@@ -92,9 +93,35 @@ def evaluate_model(model, X_test, y_test, threshold=0.3):
     print("Classification Report:\n", classification_report(y_test, y_pred_adjusted))
 
 
-def save_model(model, filename):
+@task
+def save_model(model, filename="svm_model.joblib"):
     joblib.dump(model, filename)
 
 
-def load_model(filename):
+@task
+def load_model(filename="svm_model.joblib"):
     return joblib.load(filename)
+
+
+@task
+def load_prepared_data(filename="prepared_data.joblib"):
+    return joblib.load(filename)
+
+
+@flow
+def ml_pipeline(prepare: bool = False, train: bool = False, evaluate: bool = False):
+    if prepare:
+        prepare_data()
+        print("Données préparées.")
+
+    if train:
+        X_train, X_test, y_train, y_test, scaler = load_prepared_data()
+        model = train_model(X_train, y_train)
+        save_model(model)
+        save_model(model, "svm_model.joblib")
+        print("Modèle entraîné et sauvegardé.")
+
+    if evaluate:
+        X_train, X_test, y_train, y_test, scaler = load_prepared_data()
+        model = load_model()
+        evaluate_model(model, X_test, y_test)
