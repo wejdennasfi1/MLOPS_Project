@@ -30,3 +30,8 @@ evaluate:
 #watch
 watch:
 	python watch_make.py
+test:
+	@echo "Running tests..."
+	$(PYTHON) -m unittest discover tests
+	@echo "Testing complete."
+
