@@ -38,8 +38,6 @@ test:
 run-api:
 	uvicorn app:app --reload --host 0.0.0.0 --port 8000
 
-# Makefile example for testing API
-# Makefile example for testing API
 test-api:
 		curl -X 'POST' \
 		'http://127.0.0.1:8000/predict' \
@@ -47,6 +45,9 @@ test-api:
 		-H 'Content-Type: application/json' \
 		-d '{"features": [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10, 10, 110, 12, 13, 41, 15, 16, 17, 18, 9]}'
 
+run-web:
+	@echo "Démarrage de l'interface Flask..."
+	@bash -c "source $(ENV_NAME)/bin/activate && python web_app.py"
 
 
 predict: $(ENV_NAME)/bin/activate
