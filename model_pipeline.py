@@ -1,4 +1,4 @@
-from prefect import flow, task
+from prefect import flow, task, get_run_logger
 import pandas as pd
 import numpy as np
 import joblib
@@ -6,7 +6,9 @@ from imblearn.over_sampling import SMOTE
 from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report
-
+import logging
+# Configure logging if needed (optional, can be done globally in your script)
+logging.basicConfig(level=logging.INFO)
 
 @task
 def compute_bounds(df, column):
@@ -91,8 +93,14 @@ def evaluate_model(model, X_test, y_test, threshold=0.3):
     y_pred_adjusted = (y_probs > threshold).astype(int)
     print("Accuracy:", accuracy_score(y_test, y_pred_adjusted))
     print("Classification Report:\n", classification_report(y_test, y_pred_adjusted))
-
-
+    
+    accuracy = accuracy_score(y_test, y_pred_adjusted)
+    report = classification_report(y_test, y_pred_adjusted)
+    # Log the accuracy and classification report
+    logging.info(f"Accuracy: {accuracy:.4f}")
+    logging.info(f"Classification Report:\n{report}")
+    return accuracy, report
+    
 @task
 def save_model(model, filename="svm_model.joblib"):
     joblib.dump(model, filename)
@@ -109,16 +117,15 @@ def load_prepared_data(filename="prepared_data.joblib"):
 
 
 @flow
-def ml_pipeline(prepare: bool = False, train: bool = False, evaluate: bool = False):
+def ml_pipeline(prepare: bool = True, train: bool = True, evaluate: bool = True):
     if prepare:
-        prepare_data()
+        X_train, X_test, y_train, y_test, scaler = prepare_data()  # Store result
         print("Données préparées.")
 
     if train:
         X_train, X_test, y_train, y_test, scaler = load_prepared_data()
         model = train_model(X_train, y_train)
         save_model(model)
-        save_model(model, "svm_model.joblib")
         print("Modèle entraîné et sauvegardé.")
 
     if evaluate:
