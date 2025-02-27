@@ -3,7 +3,7 @@ ENV_NAME = venv
 REQUIREMENTS = requirements.txt
 
 # Exécuter toutes les étapes
-all: lint prepare_data train evaluate  
+all: lint test prepare_data train evaluate predict
 
 # 2. Qualité du code, formattage automatique du code, sécurité du code, etc.
 lint:
@@ -34,4 +34,21 @@ test:
 	@echo "Running tests..."
 	$(PYTHON) -m unittest discover tests
 	@echo "Testing complete."
+# Lancer l'API FastAPI
+run-api:
+	uvicorn app:app --reload --host 0.0.0.0 --port 8000
+
+# Makefile example for testing API
+# Makefile example for testing API
+test-api:
+		curl -X 'POST' \
+		'http://127.0.0.1:8000/predict' \
+		-H 'accept: application/json' \
+		-H 'Content-Type: application/json' \
+		-d '{"features": [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10, 10, 110, 12, 13, 41, 15, 16, 17, 18, 9]}'
+
+
+
+predict: $(ENV_NAME)/bin/activate
+	@bash -c "source $(ENV_NAME)/bin/activate && $(PYTHON) main.py --predict"
 

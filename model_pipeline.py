@@ -1,4 +1,4 @@
-from prefect import flow, task, get_run_logger
+from prefect import flow, task
 import pandas as pd
 import numpy as np
 import joblib
@@ -7,8 +7,10 @@ from sklearn.svm import SVC
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report
 import logging
+
 # Configure logging if needed (optional, can be done globally in your script)
 logging.basicConfig(level=logging.INFO)
+
 
 @task
 def compute_bounds(df, column):
@@ -74,7 +76,7 @@ def prepare_data(
         (X_train_resampled, X_test, y_train_resampled, y_test, scaler),
         "prepared_data.joblib",
     )
-
+    joblib.dump(scaler, "scaler.joblib")  # Sauvegarde du scaler
     return X_train_resampled, X_test, y_train_resampled, y_test, scaler
 
 
@@ -93,14 +95,15 @@ def evaluate_model(model, X_test, y_test, threshold=0.3):
     y_pred_adjusted = (y_probs > threshold).astype(int)
     print("Accuracy:", accuracy_score(y_test, y_pred_adjusted))
     print("Classification Report:\n", classification_report(y_test, y_pred_adjusted))
-    
+
     accuracy = accuracy_score(y_test, y_pred_adjusted)
     report = classification_report(y_test, y_pred_adjusted)
     # Log the accuracy and classification report
     logging.info(f"Accuracy: {accuracy:.4f}")
     logging.info(f"Classification Report:\n{report}")
     return accuracy, report
-    
+
+
 @task
 def save_model(model, filename="svm_model.joblib"):
     joblib.dump(model, filename)
@@ -114,6 +117,27 @@ def load_model(filename="svm_model.joblib"):
 @task
 def load_prepared_data(filename="prepared_data.joblib"):
     return joblib.load(filename)
+
+
+@task
+@task
+def predict(features):
+    # Charger le modèle entraîné
+    model = joblib.load("svm_model.joblib")
+
+    # Charger le scaler
+    scaler = joblib.load("scaler.joblib")
+
+    # Vérifier la dimension de features
+    features = np.array(features).reshape(1, -1)  # Transformer en tableau 2D
+
+    # Transformer les features avec le scaler
+    features_scaled = scaler.transform(features)
+
+    # Prédire avec le modèle SVM
+    prediction = model.predict(features_scaled)
+
+    return prediction.tolist()
 
 
 @flow
@@ -132,3 +156,9 @@ def ml_pipeline(prepare: bool = True, train: bool = True, evaluate: bool = True)
         X_train, X_test, y_train, y_test, scaler = load_prepared_data()
         model = load_model()
         evaluate_model(model, X_test, y_test)
+    if predict:
+        X_train, X_test, y_train, y_test, scaler = (
+            load_prepared_data()
+        )  # Prépare les données
+        model = load_model()  # Charge le modèle sauvegardé
+        predict(X_test.iloc[0])  # Prédire sur un seul échantillon
