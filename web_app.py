@@ -1,10 +1,11 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request
 import requests
 
 app = Flask(__name__)
 
 # URL de ton API FastAPI
 API_URL = "http://127.0.0.1:8000/predict"
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -26,6 +27,7 @@ def index():
             prediction = f"Erreur : {str(e)}"
 
     return render_template("index.html", prediction=prediction)
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

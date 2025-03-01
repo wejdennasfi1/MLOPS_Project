@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prédiction de Churn</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 50px;
+        }
+        input {
+            width: 300px;
+            padding: 8px;
+            margin: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Entrez vos caractéristiques</h1>
+    <form method="post">
+        <input type="text" name="features" placeholder="1.2, 3.4, 5.6, ..." required>
+        <button type="submit">Prédire</button>
+    </form>
+
+    {% if prediction is not none %}
+        <h2>Résultat : {{ prediction }}</h2>
+    {% endif %}
+</body>
+</html>
+
