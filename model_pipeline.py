@@ -9,9 +9,31 @@ from sklearn.metrics import accuracy_score, classification_report
 import logging
 from sklearn.feature_selection import SelectKBest, f_classif
 import mlflow
+from elasticsearch import Elasticsearch
+
 
 # Configure logging if needed (optional, can be done globally in your script)
 logging.basicConfig(level=logging.INFO)
+
+# Connexion à Elasticsearch (ajuste l'URL si nécessaire)
+es = Elasticsearch(["http://localhost:9200"])  # Utilise localhost
+
+
+# Vérifier la connexion
+if es.ping():
+    print("✅ Connexion à Elasticsearch réussie !")
+else:
+    print("❌ Impossible de se connecter à Elasticsearch")
+    exit(1)  # Arrêter le script si Elasticsearch n'est pas accessible
+
+
+def log_to_elasticsearch(index, data):
+    """Fonction pour envoyer les logs vers Elasticsearch (sans doc_type car déprécié)"""
+    try:
+        es.index(index=index, body=data)
+        print(f"✅ Log envoyé à Elasticsearch : {data}")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi des logs : {e}")
 
 
 @task
@@ -98,8 +120,8 @@ def prepare_data(
 @task
 def train_model(X_train, y_train):
     # Configurer l'URI de suivi MLflow
-    mlflow.set_tracking_uri('http://localhost:5000')  # Remplacez par l'URI correcte
-    
+    mlflow.set_tracking_uri("http://localhost:5000")  # Remplacez par l'URI correcte
+
     # Démarrer une nouvelle exécution MLflow
     with mlflow.start_run():
         # Définir et suivre les hyperparamètres
@@ -107,29 +129,43 @@ def train_model(X_train, y_train):
         probability = True
         random_state = 42
         class_weight = "balanced"
-        
+
         mlflow.log_param("kernel", kernel)
         mlflow.log_param("probability", probability)
         mlflow.log_param("random_state", random_state)
         mlflow.log_param("class_weight", class_weight)
-        
+
         # Entraîner le modèle
         model = SVC(
-            kernel=kernel, probability=probability, 
-            random_state=random_state, class_weight=class_weight
+            kernel=kernel,
+            probability=probability,
+            random_state=random_state,
+            class_weight=class_weight,
         )
         model.fit(X_train, y_train)
-        
+
         # Suivre la précision du modèle
         accuracy = model.score(X_train, y_train)
         mlflow.log_metric("accuracy", accuracy)
-        
+
+        # Sauvegarde du modèle
+        joblib.dump(model, "svm_model.joblib")
+
         # Enregistrer le modèle dans MLflow
         mlflow.sklearn.log_model(model, "svm_model")
-        
         print("Modèle enregistré dans MLflow avec une précision de", accuracy)
-    
+
+        # Envoyer les logs à Elasticsearch
+        # log_data = {"metric": "accuracy", "value": 0.92}
+        log_data = {
+            "metric": "accuracy",
+            "value": accuracy,
+            "@timestamp": pd.Timestamp.now().isoformat(),
+        }
+        log_to_elasticsearch(index="mlflow-metrics", data=log_data)
+
     return model
+
 
 @task
 def evaluate_model(model, X_test, y_test, threshold=0.3):
@@ -143,6 +179,11 @@ def evaluate_model(model, X_test, y_test, threshold=0.3):
     # Log the accuracy and classification report
     logging.info(f"Accuracy: {accuracy:.4f}")
     logging.info(f"Classification Report:\n{report}")
+
+    mlflow.set_tracking_uri("http://localhost:5000")
+    with mlflow.start_run():
+        mlflow.log_metric("test_accuracy", accuracy)
+        print("✅ Evaluation metrics logged to MLflow.")
     return accuracy, report
 
 
