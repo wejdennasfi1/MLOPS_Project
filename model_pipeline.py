@@ -10,6 +10,7 @@ import logging
 from sklearn.feature_selection import SelectKBest, f_classif
 import mlflow
 from elasticsearch import Elasticsearch
+from prefect.artifacts import create_markdown_artifact
 
 
 # Configure logging if needed (optional, can be done globally in your script)
@@ -62,6 +63,7 @@ def prepare_data(
     test_path="~/wejden_nasfi_4DS8_ml_project_1/Churn-bigml-20.csv",
     nbr_features=10,
 ):
+    mlflow.set_tracking_uri("http://localhost:5000")
     training_dataset = pd.read_csv(train_path)
     test_dataset = pd.read_csv(test_path)
 
@@ -114,6 +116,10 @@ def prepare_data(
     joblib.dump((X_train, X_test, y_train, y_test, scaler), "prepared_data.joblib")
     joblib.dump(scaler, "scaler.joblib")
 
+    # Enregistrement des artefacts avec MLflow
+    mlflow.log_artifact("prepared_data.joblib")
+    mlflow.log_artifact("scaler.joblib")
+
     return X_train, X_test, y_train, y_test, scaler
 
 
@@ -122,6 +128,9 @@ def train_model(X_train, y_train):
     # Configurer l'URI de suivi MLflow
     mlflow.set_tracking_uri("http://localhost:5000")  # Remplacez par l'URI correcte
 
+    # Assurer qu'aucun autre run n'est actif
+    if mlflow.active_run() is not None:
+        mlflow.end_run()
     # Démarrer une nouvelle exécution MLflow
     with mlflow.start_run():
         # Définir et suivre les hyperparamètres
@@ -153,7 +162,10 @@ def train_model(X_train, y_train):
 
         # Enregistrer le modèle dans MLflow
         mlflow.sklearn.log_model(model, "svm_model")
-        print("Modèle enregistré dans MLflow avec une précision de", accuracy)
+        print("Modèle enregistré dans MLflow avec une train_accurancy de", accuracy)
+
+        # Enregistrer le modèle comme artefact
+        mlflow.log_artifact("svm_model.joblib")
 
         # Envoyer les logs à Elasticsearch
         # log_data = {"metric": "accuracy", "value": 0.92}
@@ -175,7 +187,7 @@ def evaluate_model(model, X_test, y_test, threshold=0.3):
     print("Classification Report:\n", classification_report(y_test, y_pred_adjusted))
 
     accuracy = accuracy_score(y_test, y_pred_adjusted)
-    report = classification_report(y_test, y_pred_adjusted)
+    report = classification_report(y_test, y_pred_adjusted, output_dict=True)
     # Log the accuracy and classification report
     logging.info(f"Accuracy: {accuracy:.4f}")
     logging.info(f"Classification Report:\n{report}")
@@ -184,6 +196,40 @@ def evaluate_model(model, X_test, y_test, threshold=0.3):
     with mlflow.start_run():
         mlflow.log_metric("test_accuracy", accuracy)
         print("✅ Evaluation metrics logged to MLflow.")
+        # Envoyer les logs à Elasticsearch
+        # log_data = {"metric": "accuracy", "value": 0.92}
+        log_data = {
+            "metric": "accuracy",
+            "value": accuracy,
+            "@timestamp": pd.Timestamp.now().isoformat(),
+        }
+        log_to_elasticsearch(index="mlflow-metrics", data=log_data)
+
+    class_0 = list(report.keys())[
+        0
+    ]  # Récupère la première clé (normalement "0" ou False)
+    class_1 = list(report.keys())[1]
+    markdown_content = f"""
+    ### 🔍 Model Evaluation Metrics
+    - **Accuracy**: {accuracy:.4f}
+    - **Precision (Class {class_0})**: {report[class_0]["precision"]:.4f}
+    - **Recall (Class {class_0})**: {report[class_0]["recall"]:.4f}
+    - **F1-score (Class {class_0})**: {report[class_0]["f1-score"]:.4f}
+    - **Precision (Class {class_1})**: {report[class_1]["precision"]:.4f}
+    - **Recall (Class {class_1})**: {report[class_1]["recall"]:.4f}
+    - **F1-score (Class {class_1})**: {report[class_1]["f1-score"]:.4f}
+    """
+    create_markdown_artifact(
+        key="model-metrics", markdown=markdown_content  # Remplace "_" par "-"
+    )
+
+    report_path = "evaluation_report.md"
+    with open(report_path, "w") as f:
+        f.write(markdown_content)
+
+    # Enregistrer le rapport Markdown comme artefact dans MLflow
+    mlflow.log_artifact(report_path)
+
     return accuracy, report
 
 

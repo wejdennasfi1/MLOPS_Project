@@ -9,6 +9,11 @@ DOCKER_COMPOSE = docker-compose
 MLFLOW_PORT = 5000
 # Exécuter toutes les étapes
 all: lint test prepare_data train evaluate predict
+# 1. Configuration de l'environnement
+setup:
+	@echo "Création de l'environnement virtuel et installation des dépendances..."
+	@$(PYTHON) -m venv $(ENV_NAME)
+	@bash -c "source $(ENV_NAME)/bin/activate && pip install -r $(REQUIREMENTS)"
 
 # 2. Qualité du code, formattage automatique du code, sécurité du code, etc.
 lint:
@@ -62,11 +67,11 @@ test-api:
 		'http://127.0.0.1:8000/predict' \
 		-H 'accept: application/json' \
 		-H 'Content-Type: application/json' \
-		-d '{"features": [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10]}'
+		-d '{"features": [850, 0, 43, 2, 125510.82, 1, 1, 1, 79084.10,12]}'
 
 run-web:
 	@echo "Démarrage de l'interface Flask..."
-	@bash -c "source $(ENV_NAME)/bin/activate && python web_app.py"
+	@bash -c "source $(ENV_NAME)/bin/activate && python web_app.py --port=5001"
 
 
 predict: $(ENV_NAME)/bin/activate
