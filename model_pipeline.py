@@ -11,7 +11,8 @@ from sklearn.feature_selection import SelectKBest, f_classif
 import mlflow
 from elasticsearch import Elasticsearch
 from prefect.artifacts import create_markdown_artifact
-
+import psutil
+import time
 
 # Configure logging if needed (optional, can be done globally in your script)
 logging.basicConfig(level=logging.INFO)
@@ -276,8 +277,34 @@ def predict(features):
     return prediction.tolist()
 
 
+@task
+def monitor_system_task(duration=15):
+    start_time = time.time()  # Time when the monitoring starts
+    while time.time() - start_time < duration:
+        # Surveillance de la CPU
+        cpu_usage = psutil.cpu_percent(interval=1)
+        print(f"Usage CPU : {cpu_usage}%")
+
+        # Surveillance de la RAM
+        memory = psutil.virtual_memory()
+        print(
+            f"Usage RAM : {memory.percent}% (Total: {memory.total / (1024 ** 3):.2f} GB)"
+        )
+
+        # Surveillance de l'espace disque
+        disk = psutil.disk_usage("/")
+        print(
+            f"Usage disque : {disk.percent}% (Total: {disk.total / (1024 ** 3):.2f} GB)"
+        )
+
+        time.sleep(5)  # Wait for 5 seconds before the next iteration
+
+
 @flow
 def ml_pipeline(prepare: bool = True, train: bool = True, evaluate: bool = True):
+
+    # Démarrer la surveillance en parallèle
+    monitor_system_task.submit(duration=15)
     if prepare:
         X_train, X_test, y_train, y_test, scaler = prepare_data()  # Store result
         print("Données préparées.")
